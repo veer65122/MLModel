@@ -132,7 +132,7 @@ st.caption(
     "Each source date is assigned to its Monday–Sunday week, labelled by "
     "the Sunday week-ending date. Prophet is trained on these weekly totals."
 )
-st.dataframe(weekly_sales.head(20), width=True)
+st.dataframe(weekly_sales.head(20), use_container_width=True)
 
 metric1, metric2, metric3 = st.columns(3)
 with metric1:
@@ -153,7 +153,7 @@ if "Company Product Name" in raw_data.columns:
     with st.expander("View Top 10 Products"):
         try:
             top_products = analyze_top_products(raw_data, top_n=10)
-            st.dataframe(top_products, width=True)
+            st.dataframe(top_products, use_container_width=True)
         except Exception as exc:
             st.warning(f"Top-product analysis could not be completed: {exc}")
 
@@ -161,7 +161,7 @@ if "Company Product Name" in raw_data.columns:
 # --------------------------------------------------
 # 8. TRAIN WEEKLY MODEL, DISPLAY MONTHLY FORECAST
 # --------------------------------------------------
-if st.button("Generate Monthly Forecast", type="primary", width=True):
+if st.button("Generate Monthly Forecast", type="primary", use_container_width=True):
     try:
         with st.spinner("Training Prophet on weekly sales and aggregating predictions by month..."):
             results = sales_performance_analysis(
@@ -172,10 +172,10 @@ if st.button("Generate Monthly Forecast", type="primary", width=True):
         st.success("Weekly model trained; monthly forecast generated.")
 
         st.subheader("Historical Weekly Sales")
-        st.plotly_chart(results["sales_fig"], width=True)
+        st.plotly_chart(results["sales_fig"], use_container_width=True)
 
         st.subheader("Monthly Sales Forecast")
-        st.plotly_chart(results["forecast_fig"], width=True)
+        st.plotly_chart(results["forecast_fig"], use_container_width=True)
 
         st.caption(
             "Monthly forecast values are created by allocating each predicted "
@@ -194,7 +194,7 @@ if st.button("Generate Monthly Forecast", type="primary", width=True):
                 "yhat_upper": "Approx. Upper Limit",
             }
         )
-        st.dataframe(forecast_df, width=True)
+        st.dataframe(forecast_df, use_container_width=True)
 
         total_predicted = forecast_df["Predicted Monthly Sales"].sum()
         st.metric(
@@ -233,7 +233,7 @@ if st.button("Generate Monthly Forecast", type="primary", width=True):
                         "yhat": "Predicted Weekly Sales",
                     }
                 )
-                st.dataframe(evaluation_predictions, width=True)
+                st.dataframe(evaluation_predictions, use_container_width=True)
             except Exception as exc:
                 st.warning(f"Weekly model evaluation was skipped: {exc}")
 
