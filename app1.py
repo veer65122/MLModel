@@ -1,5 +1,4 @@
 from pathlib import Path
-
 import pandas as pd
 import streamlit as st
 
@@ -9,8 +8,6 @@ from main1 import (
     preprocess_data,
     sales_performance_analysis,
 )
-
-
 # --------------------------------------------------
 # 1. PAGE CONFIGURATION
 # --------------------------------------------------
@@ -34,7 +31,6 @@ DEFAULT_DATA_CANDIDATES = [
     BASE_DIR / "data" / "weekly_sales.xlsx",
 ]
 
-
 # --------------------------------------------------
 # 2. DATA LOADING HELPER
 # --------------------------------------------------
@@ -46,6 +42,18 @@ def read_sales_file(file_or_path):
     if name.endswith((".xlsx", ".xls")):
         return pd.read_excel(file_or_path)
     raise ValueError("Please upload a CSV or Excel (.xlsx/.xls) file.")
+
+
+def apply_column_mapping(df: pd.DataFrame, mapping: dict) -> pd.DataFrame:
+    """
+    Rename user columns to the internal standard names.
+    mapping keys = standard name, values = user column name (or None).
+    """
+    rename_dict = {}
+    for standard_name, user_col in mapping.items():
+        if user_col and user_col != "— Not selected —":
+            rename_dict[user_col] = standard_name
+    return df.rename(columns=rename_dict)
 
 
 # --------------------------------------------------
@@ -80,7 +88,6 @@ evaluation_weeks = st.sidebar.slider(
     disabled=not run_evaluation,
 )
 
-
 # --------------------------------------------------
 # 4. LOAD DATA
 # --------------------------------------------------
@@ -105,86 +112,148 @@ except Exception as exc:
     st.error(f"Could not read the dataset: {exc}")
     st.stop()
 
-st.caption(f"Dataset: {data_source}")
-
+st.caption(f"Dataset: {data_source}  |  Columns found: {len(raw_data.columns)}")
 
 # --------------------------------------------------
-# 5. PREPROCESS TO WEEKLY SALES
+# 5. COLUMN MAPPING INTERFACE
 # --------------------------------------------------
-try:
-    weekly_sales = preprocess_data(raw_data)
-except Exception as exc:
-    st.error(f"Weekly data preparation failed: {exc}")
-    st.info(
-        "The uploaded file must contain a date column named 'Month' or 'Week Ending' and a "
-        "numeric 'Sales Value' column. 'Revised Sales' is optional and is "
-        "used for units-sold analysis. The date values must be daily transaction "
-        "dates or weekly dates, not an already-monthly aggregated series."
-    )
+st.subheader("Column Mapping")
+st.caption("Map the columns from your uploaded file to the required fields.")
+
+# Always take columns from the currently loaded file
+available_columns = list(raw_data.columns)
+file_columns = ["— Not selected —"] + available_columns
+
+if len(available_columns) == 0:
+    st.error("No columns found in the uploaded file.")
     st.stop()
 
+# Show the user what columns were detected
+##st.info(f"Detected **{len(available_columns)}** columns in your file:  " + ", ".join(available_columns[:12]) + ("..." if len(available_columns) > 12 else ""))
 
-# --------------------------------------------------
-# 6. DATASET PREVIEW AND SUMMARY
-# --------------------------------------------------
-st.subheader("Weekly Training Data")
-st.caption(
-    "Each source date is assigned to its Monday–Sunday week, labelled by "
-    "the Sunday week-ending date. Prophet is trained on these weekly totals."
+file_columns = ["— Not selected —"] + available_columns
+
+def guess_column(candidates, columns):
+    """Try to auto-select the best matching column."""
+    cols_lower = {str(c).lower().strip(): c for c in columns}
+    for cand in candidates:
+        if cand.lower() in cols_lower:
+            return cols_lower[cand.lower()]
+    return "— Not selected —"
+
+default_date = guess_column(
+    ["Month", "Week Ending", "Date", "Week", "Transaction Date", "Order Date", "Bill Date"],
+    available_columns,
 )
-st.dataframe(weekly_sales.head(20), use_container_width=True)
+default_sales = guess_column(
+    ["Sales Value", "Sales", "Amount", "Revenue", "Net Sales", "Total Sales", "Invoice Value"],
+    available_columns,
+)
+default_units = guess_column(
+    ["Revised Sales", "Units", "Quantity", "Qty", "Units Sold", "Volume"],
+    available_columns,
+)
+default_product = guess_column(
+    ["Company Product Name", "Product", "Product Name", "Item", "SKU", "Item Name"],
+    available_columns,
+)
 
-metric1, metric2, metric3 = st.columns(3)
-with metric1:
-    st.metric("Source Records", f"{len(raw_data):,}")
-with metric2:
-    st.metric("Weekly Observations", f"{len(weekly_sales):,}")
-with metric3:
-    total_sales = pd.to_numeric(
-        weekly_sales["Sales Value"], errors="coerce"
-    ).sum()
-    st.metric("Total Sales Value", f"{total_sales:,.2f}")
+col1, col2 = st.columns(2)
 
+with col1:
+    date_col = st.selectbox(
+        "Date column (Month / Week Ending) *",
+        options=file_columns,
+        index=file_columns.index(default_date) if default_date in file_columns else 0,
+        key="map_date_col"
+    )
+    sales_col = st.selectbox(
+        "Sales Value column *",
+        options=file_columns,
+        index=file_columns.index(default_sales) if default_sales in file_columns else 0,
+        key="map_sales_col"
+    )
+
+with col2:
+    units_col = st.selectbox(
+        "Revised Sales / Units column (optional)",
+        options=file_columns,
+        index=file_columns.index(default_units) if default_units in file_columns else 0,
+        key="map_units_col"
+    )
+    product_col = st.selectbox(
+        "Product Name column (optional)",
+        options=file_columns,
+        index=file_columns.index(default_product) if default_product in file_columns else 0,
+        key="map_product_col"
+    )
+    # --------------------------------------------------
+# Apply column mapping
+# --------------------------------------------------
+column_mapping = {
+    "Month": date_col,
+    "Sales Value": sales_col,
+}
+if units_col != "— Not selected —":
+    column_mapping["Revised Sales"] = units_col
+if product_col != "— Not selected —":
+    column_mapping["Company Product Name"] = product_col
+
+mapped_data = raw_data.rename(columns={v: k for k, v in column_mapping.items()})
 
 # --------------------------------------------------
-# 7. OPTIONAL: TOP PRODUCTS
+# GENERATE BUTTON
 # --------------------------------------------------
-if "Company Product Name" in raw_data.columns:
-    with st.expander("View Top 10 Products"):
-        try:
-            top_products = analyze_top_products(raw_data, top_n=10)
-            st.dataframe(top_products, use_container_width=True)
-        except Exception as exc:
-            st.warning(f"Top-product analysis could not be completed: {exc}")
+st.markdown("---")
+generate = st.button("Generate Forecast & Charts", type="primary", use_container_width=True)
 
-
-# --------------------------------------------------
-# 8. TRAIN WEEKLY MODEL, DISPLAY MONTHLY FORECAST
-# --------------------------------------------------
-if st.button("Generate Monthly Forecast", type="primary", use_container_width=True):
+if generate:
     try:
-        with st.spinner("Training Prophet on weekly sales and aggregating predictions by month..."):
+        with st.spinner("Processing data and training model... Please wait."):
+            # 1. Preprocess to weekly
+            weekly_sales = preprocess_data(mapped_data)
+
+            # 2. Run forecasting
             results = sales_performance_analysis(
                 weekly_sales,
                 forecast_months=forecast_months,
             )
 
-        st.success("Weekly model trained; monthly forecast generated.")
+        st.success("Forecast generated successfully!")
 
-        st.subheader("Historical Weekly Sales")
-        st.plotly_chart(results["sales_fig"], use_container_width=True)
+        # ---------- Summary Metrics ----------
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.metric("Source Records", f"{len(raw_data):,}")
+        with m2:
+            st.metric("Weekly Observations", f"{len(weekly_sales):,}")
+        with m3:
+            total_sales = pd.to_numeric(weekly_sales["Sales Value"], errors="coerce").sum()
+            st.metric("Total Sales Value", f"{total_sales:,.2f}")
 
+        
+
+        # ---------- Top Products ----------
+        if "Company Product Name" in mapped_data.columns:
+            with st.expander("View Top 10 Products"):
+                try:
+                    top_products = analyze_top_products(mapped_data, top_n=10)
+                    st.dataframe(top_products, use_container_width=True)
+                except Exception as exc:
+                    st.warning(f"Top-product analysis could not be completed: {exc}")
+
+        # ---------- Charts ----------
+        
         st.subheader("Monthly Sales Forecast")
         st.plotly_chart(results["forecast_fig"], use_container_width=True)
 
         st.caption(
             "Monthly forecast values are created by allocating each predicted "
             "Monday–Sunday weekly total across calendar months in proportion "
-            "to the number of days in each month. This assumes sales are evenly "
-            "distributed within each week. Monthly lower/upper ranges are "
-            "approximate aggregates of weekly Prophet bounds."
+            "to the number of days in each month."
         )
 
+        # ---------- Prediction Table ----------
         st.subheader("Predicted Monthly Sales")
         forecast_df = results["forecast"].copy().rename(
             columns={
@@ -202,10 +271,11 @@ if st.button("Generate Monthly Forecast", type="primary", use_container_width=Tr
             f"{total_predicted:,.2f}",
         )
 
+        # ---------- Components ----------
         st.subheader("Weekly Prophet Components")
         st.pyplot(results["components_fig"], clear_figure=True)
 
-        # Weekly holdout evaluation, consistent with the model's training frequency.
+        # ---------- Evaluation ----------
         if run_evaluation:
             st.subheader("Weekly Model Evaluation")
             try:
@@ -215,16 +285,17 @@ if st.button("Generate Monthly Forecast", type="primary", use_container_width=Tr
                 )
                 metrics = evaluation["metrics"]
 
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Weekly MAE", f"{metrics['MAE']:,.2f}")
-                m2.metric("Weekly RMSE", f"{metrics['RMSE']:,.2f}")
-                m3.metric("Weekly MAPE", f"{metrics['MAPE']:.2f}%")
-                m4.metric("Weekly WAPE", f"{metrics['WAPE']:.2f}%")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Weekly MAE", f"{metrics['MAE']:,.2f}")
+                c2.metric("Weekly RMSE", f"{metrics['RMSE']:,.2f}")
+                c3.metric("Weekly MAPE", f"{metrics['MAPE']:.2f}%")
+                if "WAPE" in metrics:
+                    c4.metric("Weekly WAPE", f"{metrics['WAPE']:.2f}%")
+                elif "Accuracy" in metrics:
+                    c4.metric("Approx. Accuracy", f"{metrics['Accuracy']:.2f}%")
 
                 st.caption(
-                    f"Evaluation uses the last {evaluation_weeks} weekly observations. "
-                    "These metrics evaluate weekly predictions, while the main "
-                    "forecast table displays calendar-month totals."
+                    f"Evaluation uses the last {evaluation_weeks} weekly observations."
                 )
                 evaluation_predictions = evaluation["predictions"].rename(
                     columns={
@@ -237,7 +308,7 @@ if st.button("Generate Monthly Forecast", type="primary", use_container_width=Tr
             except Exception as exc:
                 st.warning(f"Weekly model evaluation was skipped: {exc}")
 
-        # Download monthly forecast
+        # ---------- Download ----------
         csv_data = forecast_df.to_csv(index=False).encode("utf-8")
         st.download_button(
             label="Download Monthly Forecast CSV",

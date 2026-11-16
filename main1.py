@@ -9,8 +9,6 @@ the number of days that each week overlaps each calendar month, producing
 monthly forecast totals for display.
 """
 
-from __future__ import annotations
-
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -155,8 +153,8 @@ def _create_weekly_model(training_data: pd.DataFrame) -> Prophet:
     # Avoid fitting a yearly seasonal pattern when training history is too short.
     yearly = len(training_data) >= 104
     model = Prophet(
-        yearly_seasonality=False,
-        weekly_seasonality=True,  # Observations are already weekly totals.
+        yearly_seasonality=yearly,
+        weekly_seasonality=False,  # Observations are already weekly totals.
         daily_seasonality=False,
         seasonality_mode="additive",
         interval_width=0.95,
@@ -195,9 +193,8 @@ def _weekly_values_to_monthly(
             overlap_days = (overlap_end_exclusive - overlap_start).days
 
             if overlap_days > 0:
-                month_key = month_start
                 bucket = monthly_totals.setdefault(
-                    month_key, {column: 0.0 for column in value_columns}
+                    month_start, {column: 0.0 for column in value_columns}
                 )
                 share = overlap_days / 7.0
                 for column, value in zip(value_columns, values):
@@ -382,7 +379,7 @@ def sales_performance_analysis(
     return {
         "model": model,
         "weekly_forecast": future_weekly.reset_index(drop=True),
-        "forecast": monthly_forecast.reset_index(drop=True),
+        "forecast": monthly_forecast,
         "historical_monthly": historical_monthly,
         "full_forecast": full_weekly_forecast,
         "sales_fig": sales_fig,
@@ -417,14 +414,12 @@ def evaluate_prophet_model(
     )
     forecast_eval = model.predict(future)
 
-    # Extract predictions for test dates
     predictions = test[['ds', 'y']].merge(
         forecast_eval[['ds', 'yhat']],
         on='ds',
         how='left'
     )
 
-    # Calculate metrics
     actual = predictions['y'].to_numpy(dtype=float)
     predicted = predictions['yhat'].to_numpy(dtype=float)
     errors = actual - predicted
