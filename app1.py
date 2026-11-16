@@ -44,18 +44,6 @@ def read_sales_file(file_or_path):
     raise ValueError("Please upload a CSV or Excel (.xlsx/.xls) file.")
 
 
-def apply_column_mapping(df: pd.DataFrame, mapping: dict) -> pd.DataFrame:
-    """
-    Rename user columns to the internal standard names.
-    mapping keys = standard name, values = user column name (or None).
-    """
-    rename_dict = {}
-    for standard_name, user_col in mapping.items():
-        if user_col and user_col != "— Not selected —":
-            rename_dict[user_col] = standard_name
-    return df.rename(columns=rename_dict)
-
-
 # --------------------------------------------------
 # 3. SIDEBAR: UPLOAD AND FORECAST SETTINGS
 # --------------------------------------------------
@@ -120,18 +108,14 @@ st.caption(f"Dataset: {data_source}  |  Columns found: {len(raw_data.columns)}")
 st.subheader("Column Mapping")
 st.caption("Map the columns from your uploaded file to the required fields.")
 
-# Always take columns from the currently loaded file
 available_columns = list(raw_data.columns)
-file_columns = ["— Not selected —"] + available_columns
 
-if len(available_columns) == 0:
+if not available_columns:
     st.error("No columns found in the uploaded file.")
     st.stop()
 
-# Show the user what columns were detected
-##st.info(f"Detected **{len(available_columns)}** columns in your file:  " + ", ".join(available_columns[:12]) + ("..." if len(available_columns) > 12 else ""))
-
 file_columns = ["— Not selected —"] + available_columns
+
 
 def guess_column(candidates, columns):
     """Try to auto-select the best matching column."""
@@ -187,7 +171,8 @@ with col2:
         index=file_columns.index(default_product) if default_product in file_columns else 0,
         key="map_product_col"
     )
-    # --------------------------------------------------
+
+# --------------------------------------------------
 # Apply column mapping
 # --------------------------------------------------
 column_mapping = {
@@ -231,8 +216,6 @@ if generate:
             total_sales = pd.to_numeric(weekly_sales["Sales Value"], errors="coerce").sum()
             st.metric("Total Sales Value", f"{total_sales:,.2f}")
 
-        
-
         # ---------- Top Products ----------
         if "Company Product Name" in mapped_data.columns:
             with st.expander("View Top 10 Products"):
@@ -243,7 +226,6 @@ if generate:
                     st.warning(f"Top-product analysis could not be completed: {exc}")
 
         # ---------- Charts ----------
-        
         st.subheader("Monthly Sales Forecast")
         st.plotly_chart(results["forecast_fig"], use_container_width=True)
 
